@@ -363,6 +363,10 @@ func getProcArgs(pid int) (*argenv, error) {
 			return &ae, nil
 		}
 		i := strings.Index(s, "=")
-		ae.env[s[:i]] = s[i+1:]
+		if i < 0 {
+			ae.env[s] = ""
+		} else {
+			ae.env[s[:i]] = s[i+1:]
+		}
 	}
 }
