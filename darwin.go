@@ -11,7 +11,8 @@ import (
 // retrieved.  Use Clean to clear the cache.  Use Processes to fetch information
 // about all processes at the time of its call.
 //
-// Note: Changing the value of ID will not automatically clear cached information.
+// Note: Changing the value of ID will not automatically clear cached
+// information.
 type Process struct {
 	ID     int // The process ID
 	kinfo  *KInfoProc
