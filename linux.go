@@ -28,7 +28,10 @@ type Process struct {
 	sysstat *syscall.Stat_t
 	comm    string
 	groups  []int
+	status  map[string]StatusValue
 }
+
+type StatusValue string
 
 // commLen is the maximum length of name that Command() will return.
 const commLen = 15
@@ -342,82 +345,120 @@ var statusTypes = map[string]int{
 	"nonvoluntary_ctxt_switches": stDecimal,
 }
 
-// Keeping for reference.  The only think we want from here is the list of
-// groups.
-func (p *Process) readStatus() error {
-	/*
-		if p.status != nil {
-			return nil
-		}
-	*/
+func (p *Process) StatusMap(refresh ...bool) (map[string]StatusValue, error) {
+	if p.status != nil && (len(refresh) == 0 || !refresh[0]) {
+		return p.status, nil
+	}
 	data, err := ioutil.ReadFile(p.dirname() + "/status")
 	if err != nil {
-		return err
+		p.status = nil
+		return nil, err
 	}
+	p.status = map[string]StatusValue{}
 	for _, line := range bytes.Split(data, []byte{'\n'}) {
 		x := bytes.IndexByte(line, ':')
 		if x <= 0 {
 			continue // this should never happen.
 		}
-		name := string(line[:x])
-		line = bytes.TrimSpace(line[x+1:])
-		switch statusTypes[name] {
-		case stString:
-			fmt.Printf("%s: %q\n", name, line)
-		case stOctal:
-			v, err := strconv.ParseInt(string(line), 8, 64)
-			if err != nil {
-				continue // really?
-			}
-			fmt.Printf("%s: %03o\n", name, v)
-		case stDecimal:
-			v, err := strconv.ParseInt(string(line), 10, 64)
-			if err != nil {
-				continue // really?
-			}
-			fmt.Printf("%s: %d\n", name, v)
-		case stHex:
-			v, err := strconv.ParseInt(string(line), 16, 64)
-			if err != nil {
-				continue // really?
-			}
-			fmt.Printf("%s: %x\n", name, v)
-		case stByte:
-			fmt.Printf("%s: %c\n", name, line[0])
-		case stArray:
-			a := bytes.Fields(line)
-			vs := make([]int64, len(a))
-			for i, v := range a {
-				vs[i], err = strconv.ParseInt(string(v), 10, 64)
-				_ = err
-			}
-			fmt.Printf("%s: %d\n", name, vs)
-		case stID: // real, effective, saved, filesystem
-			a := bytes.Fields(line)
-			vs := make([]int64, len(a))
-			for i, v := range a {
-				vs[i], err = strconv.ParseInt(string(v), 10, 64)
-				_ = err
-			}
-			fmt.Printf("%s: %d\n", name, vs)
-		case stSize:
-			a := bytes.Fields(line)
-			if len(a) != 2 {
-				continue
-			}
-			v, err := strconv.ParseInt(string(a[0]), 10, 64)
-			_ = err
-			if string(a[1]) == "kB" {
-				v *= 1024
-			}
-			fmt.Printf("%s: %d\n", name, v)
-		}
-		// We don't care about these fields
-		// case stRange:
-		// case stHexList:
-		// case stSlash:
+		p.status[string(line[:x])] = StatusValue(bytes.TrimSpace(line[x+1:]))
 	}
-	return nil
+	return p.status, nil
+}
+
+// StatusValue returns the StatusValue of the item name in /proc/PID/status.
+// Each call to StatusValue reads the entire /proc/PID/status file.  Use
+// StatusMap if multiple values are needed.
+func (p *Process) StatusValue(name string) (StatusValue, error) {
+	data, err := ioutil.ReadFile(p.dirname() + "/status")
+	if err != nil {
+		return "", err
+	}
+	bname := []byte("\n" + name + ":")
+	if !bytes.HasPrefix(data, bname[1:]) {
+		x := bytes.Index(data, bname)
+		if x < 0 {
+			return "", ErrUnset(name)
+		}
+		data = data[x+1:]
+	}
+	x := bytes.IndexByte(data, '\n')
+	if x < 0 {
+		x = len(data)
+	}
+	return StatusValue(bytes.TrimSpace(data[len(name)+1 : x])), nil
+}
+
+func (s StatusValue) AsOctal() (int64, error) {
+	return strconv.ParseInt(string(s), 8, 64)
+}
+
+func (s StatusValue) AsDecimal() (int64, error) {
+	return strconv.ParseInt(string(s), 10, 64)
+}
+
+func (s StatusValue) AsHex() (int64, error) {
+	return strconv.ParseInt(string(s), 16, 64)
+}
+
+func (s StatusValue) AsArray() ([]int64, error) {
+	a := strings.Fields(string(s))
+	vs := make([]int64, len(a))
+	var err error
+	for i, v := range a {
+		vs[i], err = strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return vs, nil
+}
+
+type Creds struct {
+	Real      int
+	Effective int
+	Saved     int
+	FS        int
+}
+
+func (s StatusValue) AsCreds() (Creds, error) {
+	var creds Creds
+	a := strings.Fields(string(s))
+	if len(a) != 4 {
+		return creds, errors.New("incorrect number of fields")
+	}
+	var err error
+	creds.Real, err = strconv.Atoi(a[0])
+	if err != nil {
+		return creds, err
+	}
+	creds.Effective, err = strconv.Atoi(a[1])
+	if err != nil {
+		return creds, err
+	}
+	creds.Saved, err = strconv.Atoi(a[2])
+	if err != nil {
+		return creds, err
+	}
+	creds.FS, err = strconv.Atoi(a[3])
+	if err != nil {
+		return creds, err
+	}
+	return creds, nil
+}
+
+func (s StatusValue) AsSize(value string) (int64, error) {
+	a := strings.Fields(string(s))
+	if len(a) != 2 {
+		return 0, errors.New("incorrect number of fields")
+	}
+	v, err := strconv.ParseInt(string(a[0]), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	if string(a[1]) == "kB" {
+		v *= 1024
+	}
+	return v, nil
 }
 
 func ProcessByPid(pid int) (*Process, error) {
