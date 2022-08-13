@@ -3,7 +3,7 @@
 // functionality.  The Process structure is available for all supported
 // architectures.
 //
-// COMMON FUNCTIONS
+// # COMMON FUNCTIONS
 //
 // Processes - returns a slice of all processes on the system
 // Process.Path - returns the pathname of the process

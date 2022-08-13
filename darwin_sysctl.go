@@ -8,12 +8,12 @@ import (
 )
 
 const (
-	_CTL_KERN          = 1
-	_KERN_MAXPROC      = 6
-	_KERN_PROC         = 14
-	_KERN_PROCARGS2    = 49
-	_KERN_PROC_ALL     = 0
-	_KERN_PROC_PID     = 1
+	_CTL_KERN       = 1
+	_KERN_MAXPROC   = 6
+	_KERN_PROC      = 14
+	_KERN_PROCARGS2 = 49
+	_KERN_PROC_ALL  = 0
+	_KERN_PROC_PID  = 1
 )
 
 func sysctl(mib []int32) ([]byte, error) {

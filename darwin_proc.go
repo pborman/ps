@@ -59,12 +59,12 @@ const (
 )
 
 var states = []string{
-	0: "-",
-	SIDL: "I", /* Process being created by fork. */
-	SRUN: "R", /* Currently runnable. */
+	0:      "-",
+	SIDL:   "I", /* Process being created by fork. */
+	SRUN:   "R", /* Currently runnable. */
 	SSLEEP: "S", /* Sleeping on an address. */
-	SSTOP: "T", /* Process debugging or suspension. */
-	SZOMB: "Z", /* Awaiting collection by parent. */
+	SSTOP:  "T", /* Process debugging or suspension. */
+	SZOMB:  "Z", /* Awaiting collection by parent. */
 }
 
 func (s Stat) String() string {

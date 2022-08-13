@@ -11,6 +11,7 @@ import (
 
 // A DevT is a unix device number
 type DevT uint32
+
 const noDev = 0xffffffff
 
 func (d DevT) Major() int {
@@ -67,7 +68,7 @@ func getDevNames() map[DevT]string {
 			continue
 		}
 		stat := i.Sys().(*syscall.Stat_t)
-		if (stat.Mode & (syscall.S_IFCHR|syscall.S_IFBLK)) != 0 {
+		if (stat.Mode & (syscall.S_IFCHR | syscall.S_IFBLK)) != 0 {
 			devNames[DevT(stat.Rdev)] = de.Name()
 		}
 	}
