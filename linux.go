@@ -4,11 +4,13 @@ package ps
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -21,9 +23,19 @@ import (
 type Process struct {
 	ID      int // The process ID
 	dir     string
+	path    string
 	stat    *Stat
 	sysstat *syscall.Stat_t
 	comm    string
+	groups  []int
+}
+
+func (p *Process) Clean() {
+	p.path = ""
+	p.stat = nil
+	p.sysstat = nil
+	p.comm = ""
+	p.groups = nil
 }
 
 type Stat struct {
@@ -81,13 +93,16 @@ type Stat struct {
 	ExitCode            int
 }
 
-func (p *Process) readStat() error {
+func (p *Process) Stat(refresh ...bool) (*Stat, error) {
+	if len(refresh) > 0 && refresh[0] {
+		p.stat = nil
+	}
 	if p.stat != nil {
-		return nil
+		return p.stat, nil
 	}
 	data, err := ioutil.ReadFile(p.dirname() + "/stat")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var rerr error
 	getstring := func() string {
@@ -113,6 +128,9 @@ func (p *Process) readStat() error {
 		} else {
 			s = string(data[:i])
 			data = data[i+1:]
+		}
+		if s != "" && s[len(s)-1] == '\n' {
+			s = s[:len(s)-1]
 		}
 		return s
 	}
@@ -209,7 +227,194 @@ func (p *Process) readStat() error {
 	if rerr == nil {
 		p.stat = &s
 	}
-	return rerr
+	return p.stat, rerr
+}
+
+func (p *Process) Footprint(refresh ...bool) (int, error) {
+	if _, err := p.Stat(refresh...); err != nil {
+		return 0, err
+	}
+	return int(p.stat.Vsize), nil
+}
+
+func (p *Process) Groups() ([]int, error) {
+	if p.groups != nil {
+		return p.groups, nil
+	}
+	data, err := ioutil.ReadFile(p.dirname() + "/status")
+	if err != nil {
+		return nil, err
+	}
+	const Groups = "\nGroups:"
+	x := bytes.Index(data, []byte(Groups))
+	if x < 0 {
+		return nil, errors.New("could not find Groups in status file")
+	}
+	data = data[x+len(Groups):]
+	x = bytes.IndexByte(data, '\n')
+	if x < 0 {
+		return nil, errors.New("could not find Groups in status file")
+	}
+	groupList := bytes.Fields(data[:x])
+	groups := make([]int, len(groupList))
+	for i, f := range groupList {
+		groups[i], err = strconv.Atoi(string(f))
+		if err != nil {
+			fmt.Printf("bad group: %q\n", f)
+		}
+	}
+	p.groups = groups
+	return p.groups, nil
+}
+
+const (
+	stIgnore = iota
+	stString
+	stOctal
+	stDecimal
+	stHex
+	stSize
+	stByte
+	stID // real, effective, saved, filesystem (unused)
+	stArray
+	stRange
+	stHexList
+	stSlash
+)
+
+var statusTypes = map[string]int{
+	"Name":                       stString,
+	"Umask":                      stOctal,
+	"State":                      stByte,
+	"Tgid":                       stDecimal,
+	"Ngid":                       stDecimal,
+	"Pid":                        stDecimal,
+	"PPid":                       stDecimal,
+	"TracerPid":                  stDecimal,
+	"Uid":                        stArray,
+	"Gid":                        stArray,
+	"FDSize":                     stDecimal,
+	"Groups":                     stArray,
+	"NStgid":                     stDecimal,
+	"NSpid":                      stDecimal,
+	"NSpgid":                     stDecimal,
+	"NSsid":                      stDecimal,
+	"VmPeak":                     stSize,
+	"VmSize":                     stSize,
+	"VmLck":                      stSize,
+	"VmPin":                      stSize,
+	"VmHWM":                      stSize,
+	"VmRSS":                      stSize,
+	"RssAnon":                    stSize,
+	"RssFile":                    stSize,
+	"RssShmem":                   stSize,
+	"VmData":                     stSize,
+	"VmStk":                      stSize,
+	"VmExe":                      stSize,
+	"VmLib":                      stSize,
+	"VmPTE":                      stSize,
+	"VmSwap":                     stSize,
+	"HugetlbPages":               stSize,
+	"CoreDumping":                stDecimal,
+	"Threads":                    stDecimal,
+	"SigQ":                       stSlash,
+	"SigPnd":                     stHex,
+	"ShdPnd":                     stHex,
+	"SigBlk":                     stHex,
+	"SigIgn":                     stHex,
+	"SigCgt":                     stHex,
+	"CapInh":                     stHex,
+	"CapPrm":                     stHex,
+	"CapEff":                     stHex,
+	"CapBnd":                     stHex,
+	"CapAmb":                     stHex,
+	"NoNewPrivs":                 stDecimal,
+	"Seccomp":                    stDecimal,
+	"Speculation_Store_Bypass":   stString,
+	"Cpus_allowed":               stHex,
+	"Cpus_allowed_list":          stRange,
+	"Mems_allowed":               stHexList,
+	"Mems_allowed_list":          stDecimal,
+	"voluntary_ctxt_switches":    stDecimal,
+	"nonvoluntary_ctxt_switches": stDecimal,
+}
+
+// Keeping for reference.  The only think we want from here is the list of
+// groups.
+func (p *Process) readStatus() error {
+	/*
+		if p.status != nil {
+			return nil
+		}
+	*/
+	data, err := ioutil.ReadFile(p.dirname() + "/status")
+	if err != nil {
+		return err
+	}
+	for _, line := range bytes.Split(data, []byte{'\n'}) {
+		x := bytes.IndexByte(line, ':')
+		if x <= 0 {
+			continue // this should never happen.
+		}
+		name := string(line[:x])
+		line = bytes.TrimSpace(line[x+1:])
+		switch statusTypes[name] {
+		case stString:
+			fmt.Printf("%s: %q\n", name, line)
+		case stOctal:
+			v, err := strconv.ParseInt(string(line), 8, 64)
+			if err != nil {
+				continue // really?
+			}
+			fmt.Printf("%s: %03o\n", name, v)
+		case stDecimal:
+			v, err := strconv.ParseInt(string(line), 10, 64)
+			if err != nil {
+				continue // really?
+			}
+			fmt.Printf("%s: %d\n", name, v)
+		case stHex:
+			v, err := strconv.ParseInt(string(line), 16, 64)
+			if err != nil {
+				continue // really?
+			}
+			fmt.Printf("%s: %x\n", name, v)
+		case stByte:
+			fmt.Printf("%s: %c\n", name, line[0])
+		case stArray:
+			a := bytes.Fields(line)
+			vs := make([]int64, len(a))
+			for i, v := range a {
+				vs[i], err = strconv.ParseInt(string(v), 10, 64)
+				_ = err
+			}
+			fmt.Printf("%s: %d\n", name, vs)
+		case stID: // real, effective, saved, filesystem
+			a := bytes.Fields(line)
+			vs := make([]int64, len(a))
+			for i, v := range a {
+				vs[i], err = strconv.ParseInt(string(v), 10, 64)
+				_ = err
+			}
+			fmt.Printf("%s: %d\n", name, vs)
+		case stSize:
+			a := bytes.Fields(line)
+			if len(a) != 2 {
+				continue
+			}
+			v, err := strconv.ParseInt(string(a[0]), 10, 64)
+			_ = err
+			if string(a[1]) == "kB" {
+				v *= 1024
+			}
+			fmt.Printf("%s: %d\n", name, v)
+		}
+		// We don't care about these fields
+		// case stRange:
+		// case stHexList:
+		// case stSlash:
+	}
+	return nil
 }
 
 func ProcessByPid(pid int) (*Process, error) {
@@ -271,7 +476,7 @@ func (p *Process) Pid() int {
 
 // Ppid returns the process's parent process id.
 func (p *Process) Ppid() (int, error) {
-	if err := p.readStat(); err != nil {
+	if _, err := p.Stat(); err != nil {
 		return 0, err
 	}
 	return p.stat.Ppid, nil
@@ -292,15 +497,19 @@ func (p *Process) Gid() (int, error) {
 }
 
 func (p *Process) Path() (string, error) {
+	var err error
+	if p.path == "" {
+		p.path, err = os.Readlink(p.dirname() + "/exe")
+	}
+	return p.path, err
 	return os.Readlink(p.dirname() + "/exe")
 }
 
 func (p *Process) Command() (string, error) {
-	var err error
-	if p.comm == "" {
-		p.comm, err = p.stringFile("/comm")
+	if _, err := p.Path(); err != nil {
+		return "", err
 	}
-	return p.comm, err
+	return p.path[strings.LastIndex(p.path, "/")+1:], nil
 }
 
 func (p *Process) getStrings(name string) ([]string, error) {
@@ -385,4 +594,98 @@ func listallpids() ([]int, error) {
 		}
 	}
 	return pids, nil
+}
+
+// Tty returns the controlling tty associated with p.  "-" is returned if there
+// is no associated tty.
+func (p *Process) Tty() (string, error) {
+	if _, err := p.Stat(); err != nil {
+		return "", err
+	}
+	return DevT(p.stat.TtyNr).String(), nil
+}
+
+// A DevT is a Linux device number
+type DevT uint32
+
+const noDev = 0xffffffff
+
+func (d DevT) Major() int {
+	if d == noDev {
+		return -1
+	}
+	return int((d >> 8) & 0xff)
+}
+
+func (d DevT) Minor() int {
+	if d == noDev {
+		return -1
+	}
+	return int(d & 0xff)
+}
+
+// String returns the string form of d.  If d is -1 then "-" is returned.  The
+// first call to String for any DevT caches all known device names from /dev.
+func (d DevT) String() string {
+	if name := getDevNames()[d]; name != "" {
+		return name
+	}
+	return fmt.Sprintf("%d/%d", d.Major(), d.Minor())
+}
+
+var devMutex sync.RWMutex
+var devNames map[DevT]string
+
+// fillDevNames safely fills devNames if it is not already filled.
+// One fillDevNames returns, devNames can be accessed without a lock.
+func getDevNames() map[DevT]string {
+	devMutex.RLock()
+	d := devNames
+	devMutex.RUnlock()
+	if d != nil {
+		return d
+	}
+
+	defer devMutex.Unlock()
+	devMutex.Lock()
+	if devNames != nil {
+		return devNames
+	}
+
+	devNames = map[DevT]string{}
+	devNames[noDev] = "-"
+	des, err := os.ReadDir("/dev")
+	if err != nil {
+		return devNames
+	}
+	for _, de := range des {
+		i, err := de.Info()
+		if err != nil {
+			continue
+		}
+		stat := i.Sys().(*syscall.Stat_t)
+		if (stat.Mode & (syscall.S_IFCHR | syscall.S_IFBLK)) != 0 {
+			devNames[DevT(stat.Rdev)] = de.Name()
+		}
+		if (stat.Mode & syscall.S_IFDIR) != 0 {
+			name := de.Name()
+			des, err := os.ReadDir("/dev/" + name)
+			name += "/"
+			if err != nil {
+				continue
+			}
+			for _, de := range des {
+				i, err := de.Info()
+				if err != nil {
+					continue
+				}
+				stat := i.Sys().(*syscall.Stat_t)
+				if (stat.Mode & (syscall.S_IFCHR | syscall.S_IFBLK)) != 0 {
+					devNames[DevT(stat.Rdev)] = name + de.Name()
+				}
+			}
+		}
+	}
+
+	return devNames
 }
