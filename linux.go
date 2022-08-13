@@ -30,6 +30,9 @@ type Process struct {
 	groups  []int
 }
 
+// commLen is the maximum length of name that Command() will return.
+const commLen = 15
+
 func (p *Process) Clean() {
 	p.path = ""
 	p.stat = nil
@@ -502,12 +505,15 @@ func (p *Process) Path() (string, error) {
 		p.path, err = os.Readlink(p.dirname() + "/exe")
 	}
 	return p.path, err
-	return os.Readlink(p.dirname() + "/exe")
 }
 
 func (p *Process) Command() (string, error) {
 	if _, err := p.Path(); err != nil {
-		return "", err
+		s, err := p.Stat()
+		if err != nil {
+			return "", err
+		}
+		return s.Comm, err
 	}
 	return p.path[strings.LastIndex(p.path, "/")+1:], nil
 }

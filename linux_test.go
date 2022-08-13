@@ -10,6 +10,14 @@ import (
 var mypid = os.Getpid()
 
 func TestSomething(t *testing.T) {
+	procs, err := ProcessByName("sshd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range procs {
+		t.Error(p.Command())
+	}
+	return
 	p, err := ProcessByPid(28539)
 	if err != nil {
 		t.Fatal(err)

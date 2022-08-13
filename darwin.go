@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+// commLen is the maximum length of name that Command() will return.
+// zero means no limit.
+const commLen = 0
+
 // A Process represents a process.  A Process will cache any information
 // retrieved.  Use Clean to clear the cache.  Use Processes to fetch information
 // about all processes at the time of its call.
