@@ -15,8 +15,23 @@
 package ps
 
 import (
+	"fmt"
 	"strings"
 )
+
+// An ErrUnset is returned when requesting the value of a variable that is not
+// set.
+type ErrUnset string
+
+func (e ErrUnset) Error() string {
+	return fmt.Sprintf("variable not set: %s", string(e))
+}
+
+// IsUnset returns true if err is of type ErrUnset.
+func IsUnset(err error) bool {
+	_, ok := err.(ErrUnset)
+	return ok
+}
 
 // ProcessByName returns a list of processes with the provided name.  If name is
 // an absolute pathname then the commands pathname must must match.  If name has

@@ -552,20 +552,6 @@ func (p *Process) Environ() (map[string]string, error) {
 	return env, nil
 }
 
-// An ErrUnset is returned when requesting the value of a variable that is not
-// set.
-type ErrUnset string
-
-func (e ErrUnset) Error() string {
-	return fmt.Sprintf("variable not set: %s", string(e))
-}
-
-// IsUnset returns true if err is of type ErrUnset.
-func IsUnset(err error) bool {
-	_, ok := err.(ErrUnset)
-	return ok
-}
-
 // Value returns the value p's environment variable name.
 func (p *Process) Value(name string) (string, error) {
 	env, err := p.Environ()
