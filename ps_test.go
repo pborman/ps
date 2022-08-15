@@ -4,6 +4,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -111,71 +112,81 @@ func TestPath(t *testing.T) {
 }
 
 func TestArgv(t *testing.T) {
-        p := &Process{ID: mypid}
-        argv, err := p.Argv()
-        if err != nil {
-                t.Fatal(err)
-        }
+	p := &Process{ID: mypid}
+	argv, err := p.Argv()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(argv) != len(os.Args) {
-                t.Fatalf("got %d parameters, want %d", len(argv), len(os.Args))
+		t.Fatalf("got %d parameters, want %d", len(argv), len(os.Args))
 	}
 	for i, arg := range os.Args {
 		if argv[i] != arg {
 			t.Errorf("argv[%d] is %q, want %q", i, argv[i], arg)
 		}
 	}
+	p = &Process{ID: 1234567}
+	_, err = p.Argv()
+	if err == nil || err != syscall.ESRCH {
+		t.Errorf("invalid PID did not return ESRCH")
+	}
+	p = &Process{ID: 1}
+	_, err = p.Argv()
+	if err == nil || err != syscall.EPERM {
+		t.Errorf("unowned PID did not return EPERM")
+	}
 }
 
 func TestEnviron(t *testing.T) {
-        p := &Process{ID: mypid}
-        env, err := p.Environ()
-        if err != nil {
-                t.Fatal(err)
-        }
-        if env["HOME"] == "" {
-                t.Errorf("Could not find HOME")
-        }
+	p := &Process{ID: mypid}
+	env, err := p.Environ()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["HOME"] == "" {
+		t.Errorf("Could not find HOME")
+	}
 }
 
 func TestValue(t *testing.T) {
-        p := &Process{ID: mypid}
-        value, err := p.Value("HOME")
-        if err != nil {
-                t.Fatal(err)
-        }
-        if value == "" {
-                t.Errorf("Could not find HOME")
-        }
-        const badName = "==="
-        _, err = p.Value(badName)
-        if err == nil {
-                t.Fatalf("returned value for impossible name")
-        }
-        if !IsUnset(err) {
-                t.Fatalf("returned error type %T, want %T", err, ErrUnset("x"))
-        }
-        if string(err.(ErrUnset)) != badName {
-                t.Fatalf("got error for %q, want it for %q", string(err.(ErrUnset)), badName)
-        }
+	p := &Process{ID: mypid}
+	value, err := p.Value("HOME")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value == "" {
+		t.Errorf("Could not find HOME")
+	}
+	const badName = "==="
+	_, err = p.Value(badName)
+	if err == nil {
+		t.Fatalf("returned value for impossible name")
+	}
+	if !IsUnset(err) {
+		t.Fatalf("returned error type %T, want %T", err, ErrUnset("x"))
+	}
+	if string(err.(ErrUnset)) != badName {
+		t.Fatalf("got error for %q, want it for %q", string(err.(ErrUnset)), badName)
+	}
 }
 
 func TestGetDevNames(t *testing.T) {
-        devMutex.Lock()
-        devNames = nil
-        devMutex.Unlock()
-        devMap := getDevNames()
-        if len(devMap) == 0 {
-                t.Errorf("Did not get any devices")
-        }
-        var v DevT
-        for v, _ = range devMap {
-                break
-        }
-        devMutex.Lock()
-        devNames[v] = "changed"
-        devMutex.Unlock()
-        if v.String() != "changed" {
-                t.Errorf("Got dev name %q, want %q", v.String(), "changed")
-        }
+	devMutex.Lock()
+	devNames = nil
+	devMutex.Unlock()
+	devMap := getDevNames()
+	if len(devMap) == 0 {
+		t.Errorf("Did not get any devices")
+	}
+	var v DevT
+	for v, _ = range devMap {
+		break
+	}
+	devMutex.Lock()
+	devNames[v] = "changed"
+	devMutex.Unlock()
+	if v.String() != "changed" {
+		t.Errorf("Got dev name %q, want %q", v.String(), "changed")
+	}
 
 }
