@@ -549,9 +549,7 @@ func (p *Process) Path() (string, error) {
 	var err error
 	if p.path == "" {
 		p.path, err = os.Readlink(p.dirname() + "/exe")
-		if os.IsNotExist(err) {
-			return "", syscall.ESRCH
-		}
+		err = fixError(err)
 	}
 	return p.path, err
 }
@@ -733,6 +731,11 @@ func getDevNames() map[DevT]string {
 }
 
 func fixError(err error) error {
-	if os.IsNotExist(err) { return syscall.ESRCH }
+	if os.IsNotExist(err) {
+		return syscall.ESRCH
+	}
+	if os.IsPermission(err) {
+		return syscall.EPERM
+	}
 	return err
 }

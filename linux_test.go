@@ -164,3 +164,13 @@ func TestTty(t *testing.T) {
                 t.Errorf("Got tty %q, want %q", got, want)
         }
 }
+
+func TestEPerm(t *testing.T) {
+        p := Process{
+                ID: 1,
+        }
+        _, err := p.Path()
+        if err != syscall.EPERM {
+                t.Errorf("Got %v, want %v", err, syscall.EPERM)
+        }
+}
