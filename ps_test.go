@@ -128,12 +128,7 @@ func TestArgv(t *testing.T) {
 	p = &Process{ID: 1234567}
 	_, err = p.Argv()
 	if err == nil || err != syscall.ESRCH {
-		t.Errorf("invalid PID did not return ESRCH")
-	}
-	p = &Process{ID: 1}
-	_, err = p.Argv()
-	if err == nil || err != syscall.EPERM {
-		t.Errorf("unowned PID did not return EPERM")
+		t.Errorf("invalid PID did not return ESRCH: %T %v", err, err)
 	}
 }
 

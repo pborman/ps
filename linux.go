@@ -109,6 +109,7 @@ func (p *Process) Stat(refresh ...bool) (*Stat, error) {
 	}
 	data, err := ioutil.ReadFile(p.dirname() + "/stat")
 	if err != nil {
+		err = fixError(err)
 		return nil, err
 	}
 	var rerr error
@@ -250,6 +251,7 @@ func (p *Process) Groups() ([]int, error) {
 	}
 	data, err := ioutil.ReadFile(p.dirname() + "/status")
 	if err != nil {
+		err = fixError(err)
 		return nil, err
 	}
 	const Groups = "\nGroups:"
@@ -352,6 +354,7 @@ func (p *Process) StatusMap(refresh ...bool) (map[string]StatusValue, error) {
 	}
 	data, err := ioutil.ReadFile(p.dirname() + "/status")
 	if err != nil {
+		err = fixError(err)
 		p.status = nil
 		return nil, err
 	}
@@ -372,6 +375,7 @@ func (p *Process) StatusMap(refresh ...bool) (map[string]StatusValue, error) {
 func (p *Process) StatusValue(name string) (StatusValue, error) {
 	data, err := ioutil.ReadFile(p.dirname() + "/status")
 	if err != nil {
+		err = fixError(err)
 		return "", err
 	}
 	bname := []byte("\n" + name + ":")
@@ -545,6 +549,9 @@ func (p *Process) Path() (string, error) {
 	var err error
 	if p.path == "" {
 		p.path, err = os.Readlink(p.dirname() + "/exe")
+		if os.IsNotExist(err) {
+			return "", syscall.ESRCH
+		}
 	}
 	return p.path, err
 }
@@ -608,6 +615,7 @@ func (p *Process) Value(name string) (string, error) {
 
 func (p *Process) stringFile(name string) (string, error) {
 	data, err := ioutil.ReadFile(p.dirname() + name)
+	err = fixError(err)
 	return string(data), err
 }
 
@@ -722,4 +730,9 @@ func getDevNames() map[DevT]string {
 	}
 
 	return devNames
+}
+
+func fixError(err error) error {
+	if os.IsNotExist(err) { return syscall.ESRCH }
+	return err
 }
