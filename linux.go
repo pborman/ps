@@ -42,6 +42,7 @@ func (p *Process) Clean() {
 	p.sysstat = nil
 	p.comm = ""
 	p.groups = nil
+	p.status = nil
 }
 
 type Stat struct {
