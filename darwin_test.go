@@ -4,8 +4,6 @@ package ps
 
 import (
 	"os"
-	"sort"
-	"strings"
 	"testing"
 )
 
@@ -114,78 +112,6 @@ func TestClean(t *testing.T) {
 	}
 }
 
-func TestPath(t *testing.T) {
-	p := &Process{ID: mypid}
-	path, err := p.Path()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if path == "" {
-		t.Errorf("returned empty path")
-	}
-	command, err := p.Command()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if command == "" {
-		t.Errorf("returned empty command")
-	}
-	if !strings.HasSuffix(path, "/"+command) {
-		t.Errorf("Command %q not the suffix of %q", "/"+command, path)
-	}
-}
-
-func TestArgv(t *testing.T) {
-	p := &Process{ID: mypid}
-	argv, err := p.Argv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(argv) == 0 {
-		t.Errorf("failed to get argv")
-	}
-	command, err := p.Command()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasSuffix(argv[0], "/"+command) {
-		t.Errorf("Arg[0] %q does not have the suffix of %q", argv[0], "/"+command)
-	}
-}
-
-func TestEnviron(t *testing.T) {
-	p := &Process{ID: mypid}
-	env, err := p.Environ()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if env["HOME"] == "" {
-		t.Errorf("Could not find HOME")
-	}
-}
-
-func TestValue(t *testing.T) {
-	p := &Process{ID: mypid}
-	value, err := p.Value("HOME")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value == "" {
-		t.Errorf("Could not find HOME")
-	}
-	const badName = "==="
-	_, err = p.Value(badName)
-	if err == nil {
-		t.Fatalf("returned value for impossible name")
-	}
-	if !IsUnset(err) {
-		t.Fatalf("returned error type %T, want %T", err, ErrUnset("x"))
-	}
-	if string(err.(ErrUnset)) != badName {
-		t.Fatalf("got error for %q, want it for %q", string(err.(ErrUnset)), badName)
-	}
-}
-
 func TestKInfo(t *testing.T) {
 	p := &Process{ID: mypid}
 	ki1, err := p.KInfo()
@@ -228,27 +154,6 @@ func TestRUsage(t *testing.T) {
 	if ru1 == ru3 {
 		t.Errorf("Returned cached structure")
 	}
-}
-
-func TestGetDevNames(t *testing.T) {
-	devMutex.Lock()
-	devNames = nil
-	devMutex.Unlock()
-	devMap := getDevNames()
-	if len(devMap) == 0 {
-		t.Errorf("Did not get any devices")
-	}
-	var v DevT
-	for v, _ = range devMap {
-		break
-	}
-	devMutex.Lock()
-	devNames[v] = "changed"
-	devMutex.Unlock()
-	if v.String() != "changed" {
-		t.Errorf("Got dev name %q, want %q", v.String(), "changed")
-	}
-
 }
 
 const dev003 = 0x12000003
