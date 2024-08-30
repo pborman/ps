@@ -24,7 +24,7 @@ func TestProcesses(t *testing.T) {
 		if p.dir == "" {
 			t.Fatalf("Process[%d] does not have dir filled", p.ID)
 		}
-		if p.path != "" {
+		if p.cpath != "" {
 			t.Fatalf("Process[%d] has path filled", p.ID)
 		}
 		if p.comm != "" {
@@ -36,7 +36,7 @@ func TestProcesses(t *testing.T) {
 		if p.sysstat != nil {
 			t.Fatalf("Process[%d] has sysstat filled", p.ID)
 		}
-		if p.groups != nil {
+		if p.cgroups != nil {
 			t.Fatalf("Process[%d] has groups filled", p.ID)
 		}
 
@@ -58,7 +58,7 @@ func TestProcesses(t *testing.T) {
 		if p.dir == "" {
 			t.Fatalf("Process[%d] dost not have dir filled", p.ID)
 		}
-		if p.path != "" {
+		if p.cpath != "" {
 			t.Fatalf("Process[%d] has path filled", p.ID)
 		}
 		if p.comm != "" {
@@ -70,7 +70,7 @@ func TestProcesses(t *testing.T) {
 		if p.sysstat == nil {
 			t.Fatalf("Process[%d] does not have sysstat filled", p.ID)
 		}
-		if p.groups != nil {
+		if p.cgroups != nil {
 			t.Fatalf("Process[%d] has groups filled", p.ID)
 		}
 	}
@@ -109,15 +109,15 @@ func TestClean(t *testing.T) {
 	p := &Process{
 		ID:      1,
 		dir:     "/foo",
-		path:    "/bar",
+		cpath:   "/bar",
 		comm:    "foo",
 		stat:    &Stat{},
 		sysstat: &syscall.Stat_t{},
-		groups:  []int{1},
+		cgroups: []int{1},
 		status:  map[string]StatusValue{},
 	}
 	p.Clean()
-	if p.path != "" {
+	if p.cpath != "" {
 		t.Errorf("path not cleared")
 	}
 	if p.stat != nil {
@@ -129,7 +129,7 @@ func TestClean(t *testing.T) {
 	if p.comm != "" {
 		t.Errorf("comm not cleared")
 	}
-	if p.groups != nil {
+	if p.cgroups != nil {
 		t.Errorf("groups not cleared")
 	}
 	if p.status != nil {
@@ -140,37 +140,37 @@ func TestClean(t *testing.T) {
 const dev003 = 0x1203
 
 func initDev() {
-        devMutex.Lock()
-        devNames = map[DevT]string{
-                dev003: "dev003",
-                noDev:  "-",
-        }
-        devMutex.Unlock()
+	devMutex.Lock()
+	devNames = map[DevT]string{
+		dev003: "dev003",
+		noDev:  "-",
+	}
+	devMutex.Unlock()
 }
 
 func TestTty(t *testing.T) {
-        initDev()
-        p := &Process{
-                ID:    mypid,
-                stat: &Stat{},
-        }
-        p.stat.TtyNr = 0x1203
-        got, err := p.Tty()
-        if err != nil {
-                t.Error(err)
-        }
-        want := "dev003"
-        if got != want {
-                t.Errorf("Got tty %q, want %q", got, want)
-        }
+	initDev()
+	p := &Process{
+		ID:   mypid,
+		stat: &Stat{},
+	}
+	p.stat.TtyNr = 0x1203
+	got, err := p.Tty()
+	if err != nil {
+		t.Error(err)
+	}
+	want := "dev003"
+	if got != want {
+		t.Errorf("Got tty %q, want %q", got, want)
+	}
 }
 
 func TestEPerm(t *testing.T) {
-        p := Process{
-                ID: 1,
-        }
-        _, err := p.Path()
-        if err != syscall.EPERM {
-                t.Errorf("Got %v, want %v", err, syscall.EPERM)
-        }
+	p := Process{
+		ID: 1,
+	}
+	_, err := p.Path()
+	if err != syscall.EPERM {
+		t.Errorf("Got %v, want %v", err, syscall.EPERM)
+	}
 }

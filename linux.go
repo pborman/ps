@@ -21,14 +21,15 @@ import (
 // Note: Changing the value of ID will not automatically clear cached
 // information.
 type Process struct {
-	ID      int // The process ID
-	dir     string
-	path    string
-	stat    *Stat
-	sysstat *syscall.Stat_t
-	comm    string
-	groups  []int
-	status  map[string]StatusValue
+	ID       int        // The process ID
+	Children []*Process // Only filled in by GetProcessMap
+	dir      string
+	cpath    string
+	stat     *Stat
+	sysstat  *syscall.Stat_t
+	comm     string
+	cgroups  []int
+	status   map[string]StatusValue
 }
 
 type StatusValue string
@@ -36,15 +37,17 @@ type StatusValue string
 // commLen is the maximum length of name that Command() will return.
 const commLen = 15
 
-func (p *Process) Clean() {
-	p.path = ""
+func (p *Process) clean() {
+	p.cpath = ""
 	p.stat = nil
 	p.sysstat = nil
 	p.comm = ""
-	p.groups = nil
+	p.cgroups = nil
 	p.status = nil
 }
 
+// A Stat contains the information from /proc/PID/stat.
+// Stat is only defined for linux.
 type Stat struct {
 	Pid                 int
 	Comm                string
@@ -100,6 +103,8 @@ type Stat struct {
 	ExitCode            int
 }
 
+// Stat returns the information from /proc/PID/stat.
+// Stat is only available on linux.
 func (p *Process) Stat(refresh ...bool) (*Stat, error) {
 	if len(refresh) > 0 && refresh[0] {
 		p.stat = nil
@@ -238,16 +243,16 @@ func (p *Process) Stat(refresh ...bool) (*Stat, error) {
 	return p.stat, rerr
 }
 
-func (p *Process) Footprint(refresh ...bool) (int, error) {
+func (p *Process) footprint(refresh ...bool) (int, error) {
 	if _, err := p.Stat(refresh...); err != nil {
 		return 0, err
 	}
 	return int(p.stat.Vsize), nil
 }
 
-func (p *Process) Groups() ([]int, error) {
-	if p.groups != nil {
-		return p.groups, nil
+func (p *Process) groups() ([]int, error) {
+	if p.cgroups != nil {
+		return p.cgroups, nil
 	}
 	data, err := ioutil.ReadFile(p.dirname() + "/status")
 	if err != nil {
@@ -272,8 +277,8 @@ func (p *Process) Groups() ([]int, error) {
 			fmt.Printf("bad group: %q\n", f)
 		}
 	}
-	p.groups = groups
-	return p.groups, nil
+	p.cgroups = groups
+	return p.cgroups, nil
 }
 
 const (
@@ -348,6 +353,8 @@ var statusTypes = map[string]int{
 	"nonvoluntary_ctxt_switches": stDecimal,
 }
 
+// StatusMap returns the values from /proc/PID/status.
+// StatusMap is only availabe on linux.
 func (p *Process) StatusMap(refresh ...bool) (map[string]StatusValue, error) {
 	if p.status != nil && (len(refresh) == 0 || !refresh[0]) {
 		return p.status, nil
@@ -372,6 +379,7 @@ func (p *Process) StatusMap(refresh ...bool) (map[string]StatusValue, error) {
 // StatusValue returns the StatusValue of the item name in /proc/PID/status.
 // Each call to StatusValue reads the entire /proc/PID/status file.  Use
 // StatusMap if multiple values are needed.
+// StatusValue is only available on linux.
 func (p *Process) StatusValue(name string) (StatusValue, error) {
 	data, err := ioutil.ReadFile(p.dirname() + "/status")
 	if err != nil {
@@ -393,18 +401,22 @@ func (p *Process) StatusValue(name string) (StatusValue, error) {
 	return StatusValue(bytes.TrimSpace(data[len(name)+1 : x])), nil
 }
 
+// AsOctal returns the numeric value of s assuming it is octal.
 func (s StatusValue) AsOctal() (int64, error) {
 	return strconv.ParseInt(string(s), 8, 64)
 }
 
+// AsDecimal returns the numeric value of s assuming it is decimal.
 func (s StatusValue) AsDecimal() (int64, error) {
 	return strconv.ParseInt(string(s), 10, 64)
 }
 
+// AsHex returns the numeric value of s assuming it is hexadecimal.
 func (s StatusValue) AsHex() (int64, error) {
 	return strconv.ParseInt(string(s), 16, 64)
 }
 
+// AsOctal returns the numeric value of s assuming it is an array of decimal.
 func (s StatusValue) AsArray() ([]int64, error) {
 	a := strings.Fields(string(s))
 	vs := make([]int64, len(a))
@@ -418,6 +430,8 @@ func (s StatusValue) AsArray() ([]int64, error) {
 	return vs, nil
 }
 
+// Creds contains the credentials for a process.
+// Creds is only available on linux.
 type Creds struct {
 	Real      int
 	Effective int
@@ -425,6 +439,7 @@ type Creds struct {
 	FS        int
 }
 
+// AsCreds returns s interpreted as a Creds structure.
 func (s StatusValue) AsCreds() (Creds, error) {
 	var creds Creds
 	a := strings.Fields(string(s))
@@ -451,6 +466,7 @@ func (s StatusValue) AsCreds() (Creds, error) {
 	return creds, nil
 }
 
+// AsSize returns the number of bytes represented by s.
 func (s StatusValue) AsSize(value string) (int64, error) {
 	a := strings.Fields(string(s))
 	if len(a) != 2 {
@@ -466,7 +482,7 @@ func (s StatusValue) AsSize(value string) (int64, error) {
 	return v, nil
 }
 
-func ProcessByPid(pid int) (*Process, error) {
+func processByPid(pid int) (*Process, error) {
 	p := &Process{
 		ID: pid,
 	}
@@ -495,10 +511,7 @@ func (p *Process) dirname() string {
 	return p.dir
 }
 
-// Processes returns a list of all processes on the system.  If filled is true
-// then additional information will be included.
-// parameter is ignored on Linux.
-func Processes(filled bool) ([]*Process, error) {
+func processes(filled bool) ([]*Process, error) {
 	pids, err := listallpids()
 	if err != nil {
 		return nil, err
@@ -519,42 +532,41 @@ func Processes(filled bool) ([]*Process, error) {
 	return p, nil
 }
 
-func (p *Process) Pid() int {
+func (p *Process) pid() int {
 	return p.ID
 }
 
-// Ppid returns the process's parent process id.
-func (p *Process) Ppid() (int, error) {
+func (p *Process) ppid() (int, error) {
 	if _, err := p.Stat(); err != nil {
 		return 0, err
 	}
 	return p.stat.Ppid, nil
 }
 
-func (p *Process) Uid() (int, error) {
+func (p *Process) uid() (int, error) {
 	if err := p.getStat(); err != nil {
 		return 0, err
 	}
 	return int(p.sysstat.Uid), nil
 }
 
-func (p *Process) Gid() (int, error) {
+func (p *Process) gid() (int, error) {
 	if err := p.getStat(); err != nil {
 		return 0, err
 	}
 	return int(p.sysstat.Gid), nil
 }
 
-func (p *Process) Path() (string, error) {
+func (p *Process) path() (string, error) {
 	var err error
-	if p.path == "" {
-		p.path, err = os.Readlink(p.dirname() + "/exe")
+	if p.cpath == "" {
+		p.cpath, err = os.Readlink(p.dirname() + "/exe")
 		err = fixError(err)
 	}
-	return p.path, err
+	return p.cpath, err
 }
 
-func (p *Process) Command() (string, error) {
+func (p *Process) command() (string, error) {
 	if _, err := p.Path(); err != nil {
 		s, err := p.Stat()
 		if err != nil {
@@ -562,7 +574,7 @@ func (p *Process) Command() (string, error) {
 		}
 		return s.Comm, err
 	}
-	return p.path[strings.LastIndex(p.path, "/")+1:], nil
+	return p.cpath[strings.LastIndex(p.cpath, "/")+1:], nil
 }
 
 func (p *Process) getStrings(name string) ([]string, error) {
@@ -576,12 +588,12 @@ func (p *Process) getStrings(name string) ([]string, error) {
 	return strings.Split(s, "\000"), nil
 }
 
-func (p *Process) Argv() ([]string, error) {
+func (p *Process) argv() ([]string, error) {
 	// cache this
 	return p.getStrings("/cmdline")
 }
 
-func (p *Process) Environ() (map[string]string, error) {
+func (p *Process) environ() (map[string]string, error) {
 	// cache this
 	fields, err := p.getStrings("/environ")
 	if err != nil {
@@ -599,8 +611,7 @@ func (p *Process) Environ() (map[string]string, error) {
 	return env, nil
 }
 
-// Value returns the value p's environment variable name.
-func (p *Process) Value(name string) (string, error) {
+func (p *Process) value(name string) (string, error) {
 	env, err := p.Environ()
 	if err != nil {
 		return "", err
@@ -636,9 +647,7 @@ func listallpids() ([]int, error) {
 	return pids, nil
 }
 
-// Tty returns the controlling tty associated with p.  "-" is returned if there
-// is no associated tty.
-func (p *Process) Tty() (string, error) {
+func (p *Process) tty() (string, error) {
 	if _, err := p.Stat(); err != nil {
 		return "", err
 	}

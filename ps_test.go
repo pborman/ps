@@ -77,7 +77,7 @@ func TestFootprint(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Force our footprint to increase
-	extra := make([]int, 1024*1024)
+	extra := make([]int, 16*1024*1024)
 	second, err := p.Footprint(true)
 	if err != nil {
 		t.Fatal(err)

@@ -4,6 +4,7 @@ package ps
 
 import (
 	"os"
+	"syscall"
 	"testing"
 )
 
@@ -26,7 +27,7 @@ func TestProcesses(t *testing.T) {
 		if p.rusage != nil {
 			t.Fatalf("Process[%d] has rusage filled", p.ID)
 		}
-		if p.path != "" {
+		if p.cpath != "" {
 			t.Fatalf("Process[%d] has path filled", p.ID)
 		}
 		if p.argenv != nil {
@@ -56,7 +57,7 @@ func TestProcesses(t *testing.T) {
 		if p.rusage != nil {
 			t.Fatalf("Process[%d] has rusage filled", p.ID)
 		}
-		if p.path != "" {
+		if p.cpath != "" {
 			t.Fatalf("Process[%d] has path filled", p.ID)
 		}
 		if p.argenv != nil {
@@ -95,7 +96,7 @@ func TestClean(t *testing.T) {
 		kinfo:  &KInfoProc{},
 		rusage: &RUsage{},
 		argenv: &argenv{},
-		path:   ".",
+		cpath:  ".",
 	}
 	p.Clean()
 	if p.kinfo != nil {
@@ -107,7 +108,7 @@ func TestClean(t *testing.T) {
 	if p.argenv != nil {
 		t.Errorf("argenv not cleared")
 	}
-	if p.path != "" {
+	if p.cpath != "" {
 		t.Errorf("path not cleared")
 	}
 }
@@ -227,5 +228,15 @@ func TestStat(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("%d: got %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestEPerm(t *testing.T) {
+	p := Process{
+		ID: 1,
+	}
+	_, err := p.Argv()
+	if err != syscall.EPERM {
+		t.Errorf("Got %v, want %v", err, syscall.EPERM)
 	}
 }

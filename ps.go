@@ -2,16 +2,6 @@
 // the ps command.  By its nature, different architctures may support different
 // functionality.  The Process structure is available for all supported
 // architectures.
-//
-// # COMMON FUNCTIONS
-//
-// Processes - returns a slice of all processes on the system
-// Process.Path - returns the pathname of the process
-// Process.Command - returns the name of the process
-// Process.Pid - returns the process id
-// Process.PPid - returns the parent process id
-//
-// DARWIN (macOS) SPECIFIC FUNCTIONS
 package ps
 
 import (
@@ -45,7 +35,7 @@ func IsUnset(err error) bool {
 // mechanism may return a truncated result (e.g., linux only returns up to 15
 // characters of the name).
 //
-// EXAMPLES
+// # EXAMPLES
 //
 // The name "/bin/ps" will only match commands whose pathname is "/bin/ps".  On
 // systems such as linux only the processes owned by the caller are returned.
@@ -101,4 +91,88 @@ func ProcessByName(name string) ([]*Process, error) {
 		}
 	}
 	return procs, nil
+}
+
+// Argv returns p's arguments.  Non-root users will receive an error when
+// requesting information about a process with a different UID.
+func (p *Process) Argv() ([]string, error) {
+	return p.argv()
+}
+
+// Clean discards all information known about p other than the process id.
+func (p *Process) Clean() {
+	p.clean()
+}
+
+// Command returns the command name of the binary associated with p.
+func (p *Process) Command() (string, error) {
+	return p.command()
+}
+
+// Environ returns a map of p's environment variables at time of launch.
+// Non-root users will receive an error when requesting information about a
+// process with a different UID.
+func (p *Process) Environ() (map[string]string, error) {
+	return p.environ()
+}
+
+// Footprint returns the phsycial memory footprint of p in bytes.
+// Pass in the value "true" to refresh the information.
+func (p *Process) Footprint(refresh ...bool) (int, error) {
+	return p.footprint(refresh...)
+}
+
+// Gid returns the user id of the process.
+func (p *Process) Gid() (int, error) {
+	return p.gid()
+}
+
+// Groups returns the list of groups the process is in
+func (p *Process) Groups() ([]int, error) {
+	return p.groups()
+}
+
+// Path returns the full pathname of the binary associated with p.
+func (p *Process) Path() (string, error) {
+	return p.path()
+}
+
+// Pid returns the process's process ID.
+func (p *Process) Pid() int {
+	return p.pid()
+}
+
+// Ppid returns the process's parent process id.
+func (p *Process) Ppid() (int, error) {
+	return p.ppid()
+}
+
+// Tty returns the controlling tty associated with p.  "-" is returned if there
+// is no associated tty.
+func (p *Process) Tty() (string, error) {
+	return p.tty()
+}
+
+// Uid returns the user id of the process.
+func (p *Process) Uid() (int, error) {
+	return p.uid()
+}
+
+// Value returns the value p's environment variable name.
+func (p *Process) Value(name string) (string, error) {
+	return p.value(name)
+}
+
+// ProcessByPid returns the Process associated with pid with additional
+// information filled in.  The additional information is platform specific.
+func ProcessByPid(pid int) (*Process, error) {
+	return processByPid(pid)
+}
+
+// Processes returns a list of all processes on the system.  Setting filled to
+// true will also gather the kproc_info structures for each process.  This is
+// much more efficient than requesting the kproc_info structure for each
+// process.
+func Processes(filled bool) ([]*Process, error) {
+	return processes(filled)
 }
