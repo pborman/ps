@@ -30,6 +30,8 @@ type Process struct {
 	comm     string
 	cgroups  []int
 	status   map[string]StatusValue
+	cargv    []string
+	cenv     map[string]string
 }
 
 type StatusValue string
@@ -44,6 +46,8 @@ func (p *Process) clean() {
 	p.comm = ""
 	p.cgroups = nil
 	p.status = nil
+	p.cargv = nil
+	p.cenv = nil
 }
 
 // A Stat contains the information from /proc/PID/stat.
@@ -117,6 +121,15 @@ func (p *Process) Stat(refresh ...bool) (*Stat, error) {
 		err = fixError(err)
 		return nil, err
 	}
+	s, err := parseStat(data)
+	if err != nil {
+		return nil, err
+	}
+	p.stat = s
+	return p.stat, nil
+}
+
+func parseStat(data []byte) (*Stat, error) {
 	var rerr error
 	getstring := func() string {
 		if rerr != nil || len(data) == 0 {
@@ -125,7 +138,7 @@ func (p *Process) Stat(refresh ...bool) (*Stat, error) {
 		var i int
 		var s string
 		if data[0] == '(' {
-			i = bytes.Index(data, []byte(") "))
+			i = bytes.LastIndex(data, []byte(") "))
 			if i < 0 {
 				data = nil
 				return ""
@@ -237,17 +250,17 @@ func (p *Process) Stat(refresh ...bool) (*Stat, error) {
 	s.EnvStart = getuint64()
 	s.EnvEnd = getuint64()
 	s.ExitCode = getint()
-	if rerr == nil {
-		p.stat = &s
+	if rerr != nil {
+		return nil, rerr
 	}
-	return p.stat, rerr
+	return &s, nil
 }
 
 func (p *Process) footprint(refresh ...bool) (int, error) {
 	if _, err := p.Stat(refresh...); err != nil {
 		return 0, err
 	}
-	return int(p.stat.Vsize), nil
+	return int(p.stat.Rss) * os.Getpagesize(), nil
 }
 
 func (p *Process) groups() ([]int, error) {
@@ -274,7 +287,7 @@ func (p *Process) groups() ([]int, error) {
 	for i, f := range groupList {
 		groups[i], err = strconv.Atoi(string(f))
 		if err != nil {
-			fmt.Printf("bad group: %q\n", f)
+			return nil, err
 		}
 	}
 	p.cgroups = groups
@@ -412,11 +425,11 @@ func (s StatusValue) AsDecimal() (int64, error) {
 }
 
 // AsHex returns the numeric value of s assuming it is hexadecimal.
-func (s StatusValue) AsHex() (int64, error) {
-	return strconv.ParseInt(string(s), 16, 64)
+func (s StatusValue) AsHex() (uint64, error) {
+	return strconv.ParseUint(string(s), 16, 64)
 }
 
-// AsOctal returns the numeric value of s assuming it is an array of decimal.
+// AsArray returns the numeric values of s assuming it is an array of decimal.
 func (s StatusValue) AsArray() ([]int64, error) {
 	a := strings.Fields(string(s))
 	vs := make([]int64, len(a))
@@ -467,7 +480,7 @@ func (s StatusValue) AsCreds() (Creds, error) {
 }
 
 // AsSize returns the number of bytes represented by s.
-func (s StatusValue) AsSize(value string) (int64, error) {
+func (s StatusValue) AsSize() (int64, error) {
 	a := strings.Fields(string(s))
 	if len(a) != 2 {
 		return 0, errors.New("incorrect number of fields")
@@ -498,7 +511,7 @@ func (p *Process) getStat() error {
 	}
 	var stat syscall.Stat_t
 	if err := syscall.Stat(p.dirname(), &stat); err != nil {
-		return err
+		return fixError(err)
 	}
 	p.sysstat = &stat
 	return nil
@@ -526,6 +539,9 @@ func processes(filled bool) ([]*Process, error) {
 			if err := pr.getStat(); err != nil {
 				continue
 			}
+			if _, err := pr.Stat(); err != nil {
+				continue
+			}
 		}
 		p = append(p, pr)
 	}
@@ -544,26 +560,69 @@ func (p *Process) ppid() (int, error) {
 }
 
 func (p *Process) uid() (int, error) {
-	if err := p.getStat(); err != nil {
+	sv, err := p.StatusValue("Uid")
+	if err != nil {
 		return 0, err
 	}
-	return int(p.sysstat.Uid), nil
+	creds, err := sv.AsCreds()
+	if err != nil {
+		return 0, err
+	}
+	return creds.Real, nil
 }
 
 func (p *Process) gid() (int, error) {
-	if err := p.getStat(); err != nil {
+	sv, err := p.StatusValue("Gid")
+	if err != nil {
 		return 0, err
 	}
-	return int(p.sysstat.Gid), nil
+	creds, err := sv.AsCreds()
+	if err != nil {
+		return 0, err
+	}
+	return creds.Real, nil
 }
 
 func (p *Process) path() (string, error) {
 	var err error
 	if p.cpath == "" {
 		p.cpath, err = os.Readlink(p.dirname() + "/exe")
-		err = fixError(err)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if _, e2 := os.Stat(p.dirname()); e2 == nil {
+					return "", syscall.ENOENT
+				}
+			}
+			err = fixError(err)
+		}
 	}
 	return p.cpath, err
+}
+
+func (p *Process) fds() ([]Fd, error) {
+	dir := p.dirname() + "/fd"
+	f, err := os.Open(dir)
+	if err != nil {
+		return nil, fixError(err)
+	}
+	names, err := f.Readdirnames(-1)
+	f.Close()
+	if err != nil {
+		return nil, fixError(err)
+	}
+	var fds []Fd
+	for _, name := range names {
+		fd, err := strconv.Atoi(name)
+		if err != nil {
+			continue
+		}
+		path, err := os.Readlink(dir + "/" + name)
+		if err != nil {
+			path = ""
+		}
+		fds = append(fds, Fd{Fd: fd, Path: path})
+	}
+	return fds, nil
 }
 
 func (p *Process) command() (string, error) {
@@ -582,19 +641,34 @@ func (p *Process) getStrings(name string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(s) == 0 {
+		return []string{}, nil
+	}
 	if s[len(s)-1] == 0 {
 		s = s[:len(s)-1]
+	}
+	if len(s) == 0 {
+		return []string{}, nil
 	}
 	return strings.Split(s, "\000"), nil
 }
 
 func (p *Process) argv() ([]string, error) {
-	// cache this
-	return p.getStrings("/cmdline")
+	if p.cargv != nil {
+		return p.cargv, nil
+	}
+	argv, err := p.getStrings("/cmdline")
+	if err != nil {
+		return nil, err
+	}
+	p.cargv = argv
+	return p.cargv, nil
 }
 
 func (p *Process) environ() (map[string]string, error) {
-	// cache this
+	if p.cenv != nil {
+		return p.cenv, nil
+	}
 	fields, err := p.getStrings("/environ")
 	if err != nil {
 		return nil, err
@@ -608,7 +682,8 @@ func (p *Process) environ() (map[string]string, error) {
 			env[s[:i]] = s[i+1:]
 		}
 	}
-	return env, nil
+	p.cenv = env
+	return p.cenv, nil
 }
 
 func (p *Process) value(name string) (string, error) {
@@ -651,6 +726,9 @@ func (p *Process) tty() (string, error) {
 	if _, err := p.Stat(); err != nil {
 		return "", err
 	}
+	if p.stat.TtyNr == 0 {
+		return "-", nil
+	}
 	return DevT(p.stat.TtyNr).String(), nil
 }
 
@@ -663,14 +741,14 @@ func (d DevT) Major() int {
 	if d == noDev {
 		return -1
 	}
-	return int((d >> 8) & 0xff)
+	return int((d >> 8) & 0xfff)
 }
 
 func (d DevT) Minor() int {
 	if d == noDev {
 		return -1
 	}
-	return int(d & 0xff)
+	return int((d & 0xff) | ((d >> 12) & 0xfff00))
 }
 
 // String returns the string form of d.  If d is -1 then "-" is returned.  The
@@ -685,8 +763,8 @@ func (d DevT) String() string {
 var devMutex sync.RWMutex
 var devNames map[DevT]string
 
-// fillDevNames safely fills devNames if it is not already filled.
-// One fillDevNames returns, devNames can be accessed without a lock.
+// getDevNames safely fills devNames if it is not already filled.
+// Once getDevNames returns, devNames can be accessed without a lock.
 func getDevNames() map[DevT]string {
 	devMutex.RLock()
 	d := devNames

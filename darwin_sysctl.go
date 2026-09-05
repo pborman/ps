@@ -24,9 +24,14 @@ func sysctl(mib []int32) ([]byte, error) {
 	// Keep looping until a call has sufficient data to get the entire
 	// table.  We start with no data which will return the full table
 	// size.  It is possible the table size will increase between
-	// calls so keep looping until we get them all.
-	for {
+	// calls so keep looping until we get them all.  ENOMEM means the
+	// buffer was too small; discard it and query the size again.
+	for n := 0; n < 8; n++ {
 		size, data, err = sysctl1(mib, data)
+		if err == syscall.ENOMEM {
+			data = nil
+			continue
+		}
 		if err == nil && size > len(data) {
 			data = make([]byte, size)
 			continue
@@ -36,6 +41,10 @@ func sysctl(mib []int32) ([]byte, error) {
 		}
 		return data, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	return nil, syscall.ENOMEM
 }
 
 func sysctl1(mib []int32, data []byte) (int, []byte, error) {

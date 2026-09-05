@@ -10,7 +10,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -270,8 +269,7 @@ func getKInfoPid(pid int) (*KInfoProc, error) {
 		return nil, err
 	}
 	if len(data) != kinfoProcSize {
-		// XXX
-		return nil, errors.New("bad return from sysctl")
+		return nil, syscall.ESRCH
 	}
 	return mkKInfoProc(data)
 }
@@ -283,10 +281,8 @@ func mkKInfoProc(data []byte) (*KInfoProc, error) {
 	if uintptr(len(data)) != kinfoProcSize {
 		return nil, errors.New(fmt.Sprintf("KInfoProc is %d bytes, got %d", kinfoProcSize, len(data)))
 	}
-	var ki *KInfoProc
-	sh := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
-	*(*uintptr)(unsafe.Pointer(&ki)) = sh.Data
-	return ki, nil
+	ki := *(*KInfoProc)(unsafe.Pointer(&data[0]))
+	return &ki, nil
 }
 
 // maxProc returns the maximum number of procces on the system.

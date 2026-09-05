@@ -40,8 +40,8 @@ func (d DevT) String() string {
 var devMutex sync.RWMutex
 var devNames map[DevT]string
 
-// fillDevNames safely fills devNames if it is not already filled.
-// One fillDevNames returns, devNames can be accessed without a lock.
+// getDevNames safely fills devNames if it is not already filled.
+// Once getDevNames returns, devNames can be accessed without a lock.
 func getDevNames() map[DevT]string {
 	devMutex.RLock()
 	d := devNames

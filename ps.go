@@ -1,4 +1,4 @@
-// The ps package provides programatic access to values normall associated with
+// The ps package provides programatic access to values normally associated with
 // the ps command.  By its nature, different architctures may support different
 // functionality.  The Process structure is available for all supported
 // architectures.
@@ -46,7 +46,7 @@ func IsUnset(err error) bool {
 //
 // The name "systemd-timesynced", on linux, will match both "systemd-timesynced"
 // and "systemd-timesyncd" for processes not owned by the caller (the command
-// name will is truncated to "systemd-timesync")
+// name is truncated to "systemd-timesyn")
 func ProcessByName(name string) ([]*Process, error) {
 	if name == "" {
 		return nil, nil // Maybe EINVAL?
@@ -68,7 +68,7 @@ func ProcessByName(name string) ([]*Process, error) {
 		}
 	case -1:
 		shortName := name
-		if len(shortName) > commLen {
+		if commLen > 0 && len(shortName) > commLen {
 			shortName = name[:commLen]
 		}
 		for _, p := range ps {
@@ -82,15 +82,19 @@ func ProcessByName(name string) ([]*Process, error) {
 		}
 	default:
 		// We have a slash that is not at the begining.
-		name = "/" + name
 		for _, p := range ps {
 			path, err := p.Path()
-			if err == nil && strings.HasSuffix(path, name) {
+			if err == nil && matchTrailingPath(path, name) {
 				procs = append(procs, p)
 			}
 		}
 	}
 	return procs, nil
+}
+
+// matchTrailingPath returns true if path ends with the components of name.
+func matchTrailingPath(path, name string) bool {
+	return strings.HasSuffix(path, "/"+name)
 }
 
 // Argv returns p's arguments.  Non-root users will receive an error when
@@ -116,13 +120,27 @@ func (p *Process) Environ() (map[string]string, error) {
 	return p.environ()
 }
 
+// An Fd is an open file descriptor of a process.
+type Fd struct {
+	Fd   int    // The file descriptor number
+	Path string // The pathname of the open file, if available
+}
+
+// Fds returns the open file descriptors of p.  Path is filled in when
+// the descriptor refers to a file with a known pathname.  Non-root
+// users will receive an error when requesting information about a
+// process with a different UID.
+func (p *Process) Fds() ([]Fd, error) {
+	return p.fds()
+}
+
 // Footprint returns the phsycial memory footprint of p in bytes.
 // Pass in the value "true" to refresh the information.
 func (p *Process) Footprint(refresh ...bool) (int, error) {
 	return p.footprint(refresh...)
 }
 
-// Gid returns the user id of the process.
+// Gid returns the group id of the process.
 func (p *Process) Gid() (int, error) {
 	return p.gid()
 }
@@ -170,9 +188,10 @@ func ProcessByPid(pid int) (*Process, error) {
 }
 
 // Processes returns a list of all processes on the system.  Setting filled to
-// true will also gather the kproc_info structures for each process.  This is
-// much more efficient than requesting the kproc_info structure for each
-// process.
+// true will also gather additional platform-specific information for each
+// process.  On darwin this is the kinfo_proc structure.  On linux this is
+// the /proc/PID inode information and /proc/PID/stat.  This is more efficient
+// than requesting that information for each process individually.
 func Processes(filled bool) ([]*Process, error) {
 	return processes(filled)
 }

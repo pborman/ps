@@ -64,8 +64,8 @@ func TestProcesses(t *testing.T) {
 		if p.comm != "" {
 			t.Fatalf("Process[%d] has comm filled", p.ID)
 		}
-		if p.stat != nil {
-			t.Fatalf("Process[%d] has stat filled", p.ID)
+		if p.stat == nil {
+			t.Fatalf("Process[%d] does not have stat filled", p.ID)
 		}
 		if p.sysstat == nil {
 			t.Fatalf("Process[%d] does not have sysstat filled", p.ID)
@@ -115,6 +115,8 @@ func TestClean(t *testing.T) {
 		sysstat: &syscall.Stat_t{},
 		cgroups: []int{1},
 		status:  map[string]StatusValue{},
+		cargv:   []string{"x"},
+		cenv:    map[string]string{"A": "B"},
 	}
 	p.Clean()
 	if p.cpath != "" {
@@ -134,6 +136,12 @@ func TestClean(t *testing.T) {
 	}
 	if p.status != nil {
 		t.Errorf("status not cleared")
+	}
+	if p.cargv != nil {
+		t.Errorf("argv not cleared")
+	}
+	if p.cenv != nil {
+		t.Errorf("env not cleared")
 	}
 }
 
@@ -163,9 +171,74 @@ func TestTty(t *testing.T) {
 	if got != want {
 		t.Errorf("Got tty %q, want %q", got, want)
 	}
+	p.stat.TtyNr = 0
+	got, err = p.Tty()
+	if err != nil {
+		t.Error(err)
+	}
+	if got != "-" {
+		t.Errorf("Got tty %q, want %q", got, "-")
+	}
+}
+
+func TestDevT(t *testing.T) {
+	initDev()
+	dev := DevT((0x34567 & 0xff) | (0x12 << 8) | ((0x34567 &^ 0xff) << 12))
+	if got, want := dev.Major(), 0x12; got != want {
+		t.Errorf("Major() got %02x, want %02x", got, want)
+	}
+	if got, want := dev.Minor(), 0x34567; got != want {
+		t.Errorf("Minor() got %05x, want %05x", got, want)
+	}
+
+	dev = DevT(dev003)
+	if got, want := dev.String(), "dev003"; got != want {
+		t.Errorf("device 0x%08x got name %q, want %q", uint32(dev), got, want)
+	}
+	dev = noDev
+	if got, want := dev.String(), "-"; got != want {
+		t.Errorf("device 0x%08x got name %q, want %q", uint32(dev), got, want)
+	}
+}
+
+func TestParseStatComm(t *testing.T) {
+	data := []byte("1234 (foo) bar) S 10 20 30 0 40 41 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n")
+	s, err := parseStat(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Pid != 1234 {
+		t.Errorf("Pid = %d, want 1234", s.Pid)
+	}
+	if s.Comm != "foo) bar" {
+		t.Errorf("Comm = %q, want %q", s.Comm, "foo) bar")
+	}
+	if s.State != 'S' {
+		t.Errorf("State = %q, want S", s.State)
+	}
+	if s.Ppid != 10 {
+		t.Errorf("Ppid = %d, want 10", s.Ppid)
+	}
+}
+
+func TestStatusValue(t *testing.T) {
+	got, err := StatusValue("12 kB").AsSize()
+	if err != nil || got != 12*1024 {
+		t.Errorf("AsSize: got %d %v, want %d", got, err, 12*1024)
+	}
+	u, err := StatusValue("ffffffffffffffff").AsHex()
+	if err != nil || u != ^uint64(0) {
+		t.Errorf("AsHex: got %x %v", u, err)
+	}
 }
 
 func TestEPerm(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can read pid 1")
+	}
+	if os.Getpid() == 1 {
+		t.Skip("we are pid 1")
+	}
 	p := Process{
 		ID: 1,
 	}

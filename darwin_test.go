@@ -232,6 +232,9 @@ func TestStat(t *testing.T) {
 }
 
 func TestEPerm(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can read pid 1")
+	}
 	p := Process{
 		ID: 1,
 	}

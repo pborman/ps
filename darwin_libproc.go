@@ -8,6 +8,7 @@ package ps
 import "C"
 
 import (
+	"syscall"
 	"unsafe"
 )
 
@@ -79,7 +80,62 @@ func pidrusage(pid int) (*RUsage, error) {
 	var ri RUsage
 	var vri = (*C.rusage_info_t)(unsafe.Pointer(&ri))
 	_, err := C.proc_pid_rusage(C.int(pid), _RUSAGE_INFO_V5, vri)
-	return &ri, err
+	if err != nil {
+		return nil, err
+	}
+	return &ri, nil
+}
+
+func pidfds(pid int) ([]Fd, error) {
+	infos, err := pidlistfds(pid)
+	if err != nil {
+		return nil, err
+	}
+	fds := make([]Fd, len(infos))
+	for i, info := range infos {
+		fds[i].Fd = int(info.proc_fd)
+		if info.proc_fdtype == C.PROX_FDTYPE_VNODE {
+			fds[i].Path = pidfdpath(pid, int(info.proc_fd))
+		}
+	}
+	return fds, nil
+}
+
+func pidlistfds(pid int) ([]C.struct_proc_fdinfo, error) {
+	n, err := C.proc_pidinfo(C.int(pid), C.PROC_PIDLISTFDS, 0, nil, 0)
+	if n <= 0 {
+		if err == nil {
+			err = syscall.ESRCH
+		}
+		return nil, err
+	}
+	fdsize := int(C.sizeof_struct_proc_fdinfo)
+	for retries := 0; retries < 8; retries++ {
+		buf := make([]C.struct_proc_fdinfo, int(n)/fdsize+32)
+		size := C.int(len(buf) * fdsize)
+		n, err = C.proc_pidinfo(C.int(pid), C.PROC_PIDLISTFDS, 0, unsafe.Pointer(&buf[0]), size)
+		if n <= 0 {
+			if err == nil {
+				err = syscall.ESRCH
+			}
+			return nil, err
+		}
+		if n == size {
+			n += C.int(32 * fdsize)
+			continue
+		}
+		return buf[:int(n)/fdsize], nil
+	}
+	return nil, syscall.ENOMEM
+}
+
+func pidfdpath(pid, fd int) string {
+	var info C.struct_vnode_fdinfowithpath
+	n, _ := C.proc_pidfdinfo(C.int(pid), C.int(fd), C.PROC_PIDFDVNODEPATHINFO, unsafe.Pointer(&info), C.int(unsafe.Sizeof(info)))
+	if n < C.int(unsafe.Sizeof(info)) {
+		return ""
+	}
+	return C.GoString(&info.pvip.vip_path[0])
 }
 
 func listallpids() ([]int32, error) {

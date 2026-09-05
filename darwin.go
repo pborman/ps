@@ -93,6 +93,10 @@ func (p *Process) path() (string, error) {
 	return p.cpath, err
 }
 
+func (p *Process) fds() ([]Fd, error) {
+	return pidfds(p.ID)
+}
+
 func (p *Process) command() (string, error) {
 	if p.cpath == "" {
 		var err error
@@ -141,7 +145,7 @@ func (p *Process) KInfo(refresh ...bool) (*KInfoProc, error) {
 
 // RUsage returns the RUsage structure associated with p.
 // Pass in the value "true" to refresh the information.
-// RUsage is only available ond darwin.
+// RUsage is only available on darwin.
 func (p *Process) RUsage(refresh ...bool) (*RUsage, error) {
 	if isTrue(refresh) {
 		p.rusage = nil
@@ -192,10 +196,6 @@ func processByPid(pid int) (*Process, error) {
 	}, nil
 }
 
-// Processes returns a list of all processes on the system.  Setting filled to
-// true will also gather the kproc_info structures for each process.  This is
-// much more efficient than requesting the kproc_info structure for each
-// process.
 func processes(filled bool) ([]*Process, error) {
 	if filled {
 		return fullProcesses()

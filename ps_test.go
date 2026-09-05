@@ -78,6 +78,9 @@ func TestFootprint(t *testing.T) {
 	}
 	// Force our footprint to increase
 	extra := make([]int, 16*1024*1024)
+	for i := range extra {
+		extra[i] = 1
+	}
 	second, err := p.Footprint(true)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +88,7 @@ func TestFootprint(t *testing.T) {
 	if first == second {
 		t.Errorf("Footprint did not change from %d", first)
 	}
-	if extra[0] != 0 {
+	if extra[0] != 1 {
 		t.Fatalf("this cannot happen")
 	}
 }
@@ -125,10 +128,132 @@ func TestArgv(t *testing.T) {
 			t.Errorf("argv[%d] is %q, want %q", i, argv[i], arg)
 		}
 	}
-	p = &Process{ID: 1234567}
-	_, err = p.Argv()
-	if err == nil || err != syscall.ESRCH {
-		t.Errorf("invalid PID did not return ESRCH: %T %v", err, err)
+}
+
+func deadPid(t *testing.T) int {
+	sp, err := os.StartProcess("/bin/sleep", []string{"sleep", "60"}, &os.ProcAttr{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp.Kill()
+	sp.Wait()
+	return sp.Pid
+}
+
+func TestMissingPid(t *testing.T) {
+	pid := deadPid(t)
+	p := &Process{ID: pid}
+	if _, err := ProcessByPid(pid); err != syscall.ESRCH {
+		t.Errorf("ProcessByPid: got %T %v, want ESRCH", err, err)
+	}
+	if _, err := p.Argv(); err != syscall.ESRCH {
+		t.Errorf("Argv: got %T %v, want ESRCH", err, err)
+	}
+	if _, err := p.Footprint(); err != syscall.ESRCH {
+		t.Errorf("Footprint: got %T %v, want ESRCH", err, err)
+	}
+	if _, err := p.Footprint(); err != syscall.ESRCH {
+		t.Errorf("Footprint again: got %T %v, want ESRCH", err, err)
+	}
+	if _, err := p.Fds(); err != syscall.ESRCH {
+		t.Errorf("Fds: got %T %v, want ESRCH", err, err)
+	}
+}
+
+func TestFds(t *testing.T) {
+	f, err := os.CreateTemp("", "ps-fd-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+
+	p := &Process{ID: mypid}
+	fds, err := p.Fds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fds) == 0 {
+		t.Fatal("no file descriptors")
+	}
+	want := int(f.Fd())
+	found := false
+	for _, fd := range fds {
+		if fd.Fd != want {
+			continue
+		}
+		found = true
+		if fd.Path == "" {
+			t.Errorf("fd %d has empty path", fd.Fd)
+		} else if !strings.HasSuffix(fd.Path, f.Name()) && !strings.Contains(fd.Path, "ps-fd-") {
+			t.Errorf("fd %d path %q does not match %q", fd.Fd, fd.Path, f.Name())
+		}
+	}
+	if !found {
+		t.Errorf("did not find fd %d (%s) in %d descriptors", want, f.Name(), len(fds))
+	}
+}
+
+func TestProcessByName(t *testing.T) {
+	p := &Process{ID: mypid}
+	cmd, err := p.Command()
+	if err != nil {
+		t.Fatal(err)
+	}
+	procs, err := ProcessByName(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, proc := range procs {
+		if proc.ID == mypid {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("ProcessByName(%q) did not find pid %d", cmd, mypid)
+	}
+
+	path, err := p.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	procs, err = ProcessByName(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, proc := range procs {
+		if proc.ID == mypid {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("ProcessByName(%q) did not find pid %d", path, mypid)
+	}
+
+	procs, err = ProcessByName("")
+	if err != nil || procs != nil {
+		t.Errorf("ProcessByName(\"\") got %v %v, want nil nil", procs, err)
+	}
+}
+
+func TestMatchTrailingPath(t *testing.T) {
+	for _, tt := range []struct {
+		path, name string
+		want       bool
+	}{
+		{"/bin/foo", "bin/foo", true},
+		{"/usr/bin/foo", "bin/foo", true},
+		{"/sbin/foo", "bin/foo", false},
+		{"/bin/foo", "n/foo", false},
+		{"/n/foo", "n/foo", true},
+	} {
+		if got := matchTrailingPath(tt.path, tt.name); got != tt.want {
+			t.Errorf("matchTrailingPath(%q, %q) = %v, want %v", tt.path, tt.name, got, tt.want)
+		}
 	}
 }
 
