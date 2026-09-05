@@ -97,6 +97,7 @@ func TestClean(t *testing.T) {
 		rusage: &RUsage{},
 		argenv: &argenv{},
 		cpath:  ".",
+		ccwd:   "/",
 	}
 	p.Clean()
 	if p.kinfo != nil {
@@ -110,6 +111,9 @@ func TestClean(t *testing.T) {
 	}
 	if p.cpath != "" {
 		t.Errorf("path not cleared")
+	}
+	if p.ccwd != "" {
+		t.Errorf("cwd not cleared")
 	}
 }
 

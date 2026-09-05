@@ -12,6 +12,18 @@ import (
 	"unsafe"
 )
 
+func pidcwd(pid int) (string, error) {
+	var info C.struct_proc_vnodepathinfo
+	n, err := C.proc_pidinfo(C.int(pid), C.PROC_PIDVNODEPATHINFO, 0, unsafe.Pointer(&info), C.int(unsafe.Sizeof(info)))
+	if n < C.int(unsafe.Sizeof(info)) {
+		if err == nil {
+			err = syscall.ESRCH
+		}
+		return "", err
+	}
+	return C.GoString(&info.pvi_cdir.vip_path[0]), nil
+}
+
 func pidpath(pid int) (string, error) {
 	const (
 		MAXPATHLEN               = 1024

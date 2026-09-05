@@ -20,6 +20,7 @@ type Process struct {
 	kinfo    *KInfoProc
 	rusage   *RUsage
 	cpath    string
+	ccwd     string
 	argenv   *argenv
 }
 
@@ -28,6 +29,7 @@ func (p *Process) clean() {
 	p.rusage = nil
 	p.argenv = nil
 	p.cpath = ""
+	p.ccwd = ""
 }
 
 func (p *Process) pid() int {
@@ -91,6 +93,15 @@ func (p *Process) path() (string, error) {
 	var err error
 	p.cpath, err = pidpath(p.ID)
 	return p.cpath, err
+}
+
+func (p *Process) cwd() (string, error) {
+	if p.ccwd != "" {
+		return p.ccwd, nil
+	}
+	var err error
+	p.ccwd, err = pidcwd(p.ID)
+	return p.ccwd, err
 }
 
 func (p *Process) fds() ([]Fd, error) {

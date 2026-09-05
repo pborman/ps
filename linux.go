@@ -25,6 +25,7 @@ type Process struct {
 	Children []*Process // Only filled in by GetProcessMap
 	dir      string
 	cpath    string
+	ccwd     string
 	stat     *Stat
 	sysstat  *syscall.Stat_t
 	comm     string
@@ -41,6 +42,7 @@ const commLen = 15
 
 func (p *Process) clean() {
 	p.cpath = ""
+	p.ccwd = ""
 	p.stat = nil
 	p.sysstat = nil
 	p.comm = ""
@@ -581,6 +583,22 @@ func (p *Process) gid() (int, error) {
 		return 0, err
 	}
 	return creds.Real, nil
+}
+
+func (p *Process) cwd() (string, error) {
+	var err error
+	if p.ccwd == "" {
+		p.ccwd, err = os.Readlink(p.dirname() + "/cwd")
+		if err != nil {
+			if os.IsNotExist(err) {
+				if _, e2 := os.Stat(p.dirname()); e2 == nil {
+					return "", syscall.ENOENT
+				}
+			}
+			err = fixError(err)
+		}
+	}
+	return p.ccwd, err
 }
 
 func (p *Process) path() (string, error) {

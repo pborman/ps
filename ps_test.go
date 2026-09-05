@@ -158,6 +158,32 @@ func TestMissingPid(t *testing.T) {
 	if _, err := p.Fds(); err != syscall.ESRCH {
 		t.Errorf("Fds: got %T %v, want ESRCH", err, err)
 	}
+	if _, err := p.Cwd(); err != syscall.ESRCH {
+		t.Errorf("Cwd: got %T %v, want ESRCH", err, err)
+	}
+}
+
+func TestCwd(t *testing.T) {
+	p := &Process{ID: mypid}
+	got, err := p.Cwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == "" {
+		t.Fatal("returned empty cwd")
+	}
+	want, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == want {
+		return
+	}
+	gs, err1 := os.Stat(got)
+	ws, err2 := os.Stat(want)
+	if err1 != nil || err2 != nil || !os.SameFile(gs, ws) {
+		t.Errorf("Got cwd %q, want %q", got, want)
+	}
 }
 
 func TestFds(t *testing.T) {

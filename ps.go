@@ -113,6 +113,13 @@ func (p *Process) Command() (string, error) {
 	return p.command()
 }
 
+// Cwd returns the current working directory of p.  Non-root users will
+// receive an error when requesting information about a process with a
+// different UID.
+func (p *Process) Cwd() (string, error) {
+	return p.cwd()
+}
+
 // Environ returns a map of p's environment variables at time of launch.
 // Non-root users will receive an error when requesting information about a
 // process with a different UID.

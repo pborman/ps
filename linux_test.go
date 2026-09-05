@@ -110,6 +110,7 @@ func TestClean(t *testing.T) {
 		ID:      1,
 		dir:     "/foo",
 		cpath:   "/bar",
+		ccwd:    "/baz",
 		comm:    "foo",
 		stat:    &Stat{},
 		sysstat: &syscall.Stat_t{},
@@ -121,6 +122,9 @@ func TestClean(t *testing.T) {
 	p.Clean()
 	if p.cpath != "" {
 		t.Errorf("path not cleared")
+	}
+	if p.ccwd != "" {
+		t.Errorf("cwd not cleared")
 	}
 	if p.stat != nil {
 		t.Errorf("stat not cleared")
